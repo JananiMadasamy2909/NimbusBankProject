@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Investments — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  const ctx = await initAuthedPage("investments", "Investments");
+  if (!ctx) return;
+  function marketValue(h) { return h.shares * h.price; }
+
+  async function render() {
+    const root = document.getElementById("view-root");
+    root.innerHTML = `<div class="skeleton" style="height:120px;border-radius:16px"></div>`;
+    let acct;
+    try { acct = (await api.investments()).account; }
+    catch (err) {
+      root.innerHTML = `<div class="card"><p class="hint">No investment account found. <a href="open-account.html">Open one</a> to start trading.</p></div>`;
+      return;
+    }
+    const totalValue = acct.holdings.reduce((s, h) => s + marketValue(h), 0);
+    root.innerHTML = `
+    <div class="grid grid-2" style="align-items:start;margin-bottom:20px">
+      <div class="acct-card investment" data-testid="investment-summary-card">
+        <div class="type">Investment account</div>
+        <div class="bal">${fmt(totalValue)}</div>
+        <div class="num">${acct.name} •••• ${acct.number}</div>
+      </div>
+      <div class="card">
+        <h3 class="card-title">Place a mock trade</h3>
+        <form id="trade-form">
+          <div class="form-grid-2">
+            <div class="field"><label for="trade-symbol">Symbol</label>
+              <select id="trade-symbol" data-testid="trade-symbol">${acct.holdings.map(h => `<option value="${h.symbol}">${h.symbol}</option>`).join("")}</select>
+            </div>
+            <div class="field"><label for="trade-side">Action</label>
+              <select id="trade-side" data-testid="trade-side"><option value="buy">Buy</option><option value="sell">Sell</option></select>
+            </div>
+          </div>
+          <div class="field"><label for="trade-shares">Shares</label><input type="number" id="trade-shares" min="1" step="1" value="1" data-testid="trade-shares"></div>
+          <button type="submit" class="btn btn-primary btn-block" data-testid="trade-submit">Submit order</button>
+          <div class="error-text" id="trade-error" style="display:none" data-testid="trade-error"></div>
+        </form>
+      </div>
+    </div>
+    <div class="card">
+      <h3 class="card-title">Holdings</h3>
+      <div class="table-wrap">
+        <table data-testid="holdings-table">
+          <thead><tr><th>Symbol</th><th>Name</th><th>Shares</th><th>Price</th><th>Day change</th><th>Market value</th></tr></thead>
+          <tbody>
+            ${acct.holdings.map(h => `<tr data-testid="holding-row-${h.symbol}">
+              <td><strong>${h.symbol}</strong></td><td>${escapeHtml(h.name)}</td><td>${h.shares}</td><td>${fmt(h.price)}</td>
+              <td class="${h.dayChangePct < 0 ? 'amt-neg' : 'amt-pos'}">${h.dayChangePct > 0 ? '+' : ''}${h.dayChangePct.toFixed(2)}%</td>
+              <td>${fmt(marketValue(h))}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+    bind();
+  }
+
+  function bind() {
+    document.getElementById("trade-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const symbol = document.getElementById("trade-symbol").value;
+      const side = document.getElementById("trade-side").value;
+      const shares = parseInt(document.getElementById("trade-shares").value);
+      const errEl = document.getElementById("trade-error");
+      errEl.style.display = "none";
+      if (!shares || shares <= 0) { toast("Enter a valid number of shares.", "error"); return; }
+      const btn = e.target.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = "Submitting order…";
+      try {
+        await api.trade({ symbol, side, shares });
+        toast(`Order filled: ${side} ${shares} ${symbol}.`, "success");
+        await render();
+      } catch (err) {
+        errEl.textContent = err.message; errEl.style.display = "block";
+      } finally {
+        btn.disabled = false; btn.textContent = "Submit order";
+      }
+    });
+  }
+
+  await render();
+  renderChat();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Accounts — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  const ctx = await initAuthedPage("accounts", "Accounts");
+  if (!ctx) return;
+  await render();
+
+  async function render() {
+    const root = document.getElementById("view-root");
+    root.innerHTML = `<div class="skeleton" style="height:120px;border-radius:16px"></div>`;
+    let accounts = [];
+    try { accounts = (await api.accounts()).accounts; } catch (err) { apiErrorToast(err, "Could not load accounts."); }
+
+    root.innerHTML = `
+    <div class="grid grid-4" style="margin-bottom:20px">
+      ${accounts.map(a => `
+        <div class="acct-card ${a.type}" data-testid="account-detail-${a.id}">
+          <div class="type">${a.type}</div>
+          <div class="bal">${fmt(a.balance)}</div>
+          <div class="num">${a.full}</div>
+          ${a.type === "credit" ? `<div style="margin-top:10px"><div class="progress-bar"><div class="progress-bar-fill" style="width:${Math.min(100, Math.abs(a.balance) / a.limit * 100)}%"></div></div><div class="hint" style="margin-top:6px">${fmt(Math.abs(a.balance))} of ${fmt(a.limit)} limit used</div></div>` : ""}
+          ${a.type === "investment" ? `<div class="hint" style="margin-top:10px"><a href="investments.html" data-testid="acct-view-holdings-${a.id}">View holdings →</a></div>` : ""}
+          <div style="display:flex;gap:8px;margin-top:14px">
+            <button class="btn btn-sm btn-ghost" data-open-acct="${a.id}" data-testid="acct-view-${a.id}">View statements</button>
+            <button class="btn btn-sm btn-ghost" data-rename-acct="${a.id}" data-testid="acct-rename-${a.id}">Rename</button>
+          </div>
+        </div>`).join("") || `<p class="hint">You have no accounts. <a href="open-account.html">Open one</a>.</p>`}
+    </div>
+    <div class="card">
+      <h3 class="card-title">Manage accounts</h3>
+      <div class="table-wrap">
+        <table data-testid="accounts-table">
+          <thead><tr><th>Account</th><th>Type</th><th>Number</th><th>Balance</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${accounts.map(a => `<tr data-testid="acct-row-${a.id}">
+              <td>${escapeHtml(a.name)}</td><td style="text-transform:capitalize">${a.type}</td>
+              <td class="hint" style="font-family:var(--font-mono)">${a.full}</td>
+              <td class="${a.balance < 0 ? 'amt-neg' : 'amt-pos'}">${fmt(a.balance)}</td>
+              <td><button class="btn btn-sm btn-danger" data-close-acct="${a.id}" data-testid="acct-close-${a.id}">Close account</button></td>
+            </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+    bind();
+  }
+
+  function bind() {
+    document.querySelectorAll("[data-close-acct]").forEach(b => b.addEventListener("click", () => {
+      const id = b.dataset.closeAcct;
+      openModal(`
+        <div class="modal-header"><h2>Close account</h2><button class="modal-close" data-testid="modal-close" aria-label="Close">✕</button></div>
+        <p style="font-size:14px;color:var(--text-dim)">Are you sure you want to close this account? This is irreversible in this sandbox too.</p>
+        <div class="modal-footer"><button class="btn btn-ghost" data-testid="close-cancel">Cancel</button><button class="btn btn-danger" data-testid="close-confirm">Close account</button></div>`,
+        (root) => {
+          root.querySelector(".modal-close").onclick = closeModal;
+          root.querySelector('[data-testid="close-cancel"]').onclick = closeModal;
+          root.querySelector('[data-testid="close-confirm"]').onclick = async () => {
+            try { await api.closeAccount(id); closeModal(); toast("Account closed.", "success"); await render(); }
+            catch (err) { apiErrorToast(err); }
+          };
+        });
+    }));
+    document.querySelectorAll("[data-rename-acct]").forEach(b => b.addEventListener("click", () => {
+      const id = b.dataset.renameAcct;
+      openModal(`
+        <div class="modal-header"><h2>Rename account</h2><button class="modal-close" aria-label="Close">✕</button></div>
+        <div class="field"><label for="rename-input">Account nickname</label><input type="text" id="rename-input" data-testid="rename-input"></div>
+        <div class="modal-footer"><button class="btn btn-ghost" data-testid="rename-cancel">Cancel</button><button class="btn btn-primary" data-testid="rename-save">Save</button></div>`,
+        (root) => {
+          root.querySelector(".modal-close").onclick = closeModal;
+          root.querySelector('[data-testid="rename-cancel"]').onclick = closeModal;
+          root.querySelector('[data-testid="rename-save"]').onclick = async () => {
+            const v = document.getElementById("rename-input").value.trim();
+            if (!v) { toast("Nickname cannot be empty.", "error"); return; }
+            try { await api.renameAccount(id, v); closeModal(); toast("Account renamed.", "success"); await render(); }
+            catch (err) { apiErrorToast(err); }
+          };
+        });
+    }));
+    document.querySelectorAll("[data-open-acct]").forEach(b => b.addEventListener("click", () => toast("Statement download started (mock PDF).", "info")));
+  }
+
+  renderChat();
+})();
+</script>
+</body>
+</html>

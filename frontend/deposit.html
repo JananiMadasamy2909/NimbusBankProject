@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deposit a Check — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  const ctx = await initAuthedPage("deposit", "Deposit a Check");
+  if (!ctx) return;
+
+  let stage = "form";
+  let accounts = [];
+  try { accounts = (await api.accounts()).accounts.filter(a => a.type === 'chequing' || a.type === 'savings'); } catch (err) { apiErrorToast(err, "Could not load accounts."); }
+
+  render();
+
+  function render() {
+    let html;
+    if (stage === "processing") {
+      html = `<div class="card" style="max-width:480px;text-align:center;padding:50px 28px"><div class="skeleton" style="width:60px;height:60px;border-radius:50%;margin:0 auto 18px"></div><p style="color:var(--text-dim)">Processing your deposit…</p></div>`;
+    } else if (stage === "success") {
+      html = `<div class="card" style="max-width:480px;text-align:center;padding:40px 28px">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--success-soft);color:var(--success);display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 16px">✓</div>
+        <h2 style="font-family:var(--font-display)">Deposit submitted</h2>
+        <p style="color:var(--text-dim);font-size:14px">Funds will typically be available within 1 business day.</p>
+        <a class="btn btn-primary" href="dashboard.html" data-testid="deposit-done" style="margin-top:14px">Done</a></div>`;
+    } else if (stage === "flagged") {
+      html = `<div class="card" style="max-width:480px;text-align:center;padding:40px 28px">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--danger-soft);color:var(--danger);display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 16px">!</div>
+        <h2 style="font-family:var(--font-display)">Deposit flagged for review</h2>
+        <p style="color:var(--text-dim);font-size:14px" data-testid="deposit-flag-message">Deposits over $10,000 require manual review in this sandbox. Our team will contact you within 1–2 business days.</p>
+        <a class="btn btn-ghost" href="dashboard.html" data-testid="deposit-done" style="margin-top:14px">Back to dashboard</a></div>`;
+    } else {
+      html = `<div class="card" style="max-width:520px">
+        <form id="deposit-form">
+          <div class="field"><label for="dep-acct">Deposit to</label>
+            <select id="dep-acct" data-testid="deposit-account">${accounts.map(a => `<option value="${a.id}">${a.name}</option>`).join("")}</select>
+          </div>
+          <div class="field"><label for="dep-amount">Check amount</label><input type="number" id="dep-amount" min="0.01" step="0.01" data-testid="deposit-amount" placeholder="0.00"><div class="hint">Tip: enter an amount over $10,000 to test the manual-review flow.</div></div>
+          <div class="field"><label>Check — front image</label><div class="dropzone" id="dropzone-front" data-testid="dropzone-front">📄 Drag & drop or click to upload (mock)</div></div>
+          <div class="field"><label>Check — back image</label><div class="dropzone" id="dropzone-back" data-testid="dropzone-back">📄 Drag & drop or click to upload (mock)</div></div>
+          <button type="submit" class="btn btn-primary btn-block btn-lg" data-testid="deposit-submit">Submit deposit</button>
+        </form></div>`;
+    }
+    document.getElementById("view-root").innerHTML = html;
+    bind();
+  }
+
+  function bind() {
+    const form = document.getElementById("deposit-form");
+    if (form) {
+      ["dropzone-front", "dropzone-back"].forEach(id => {
+        const dz = document.getElementById(id);
+        dz.addEventListener("click", () => { dz.classList.toggle("drag"); dz.textContent = dz.classList.contains("drag") ? "✓ Image attached (mock-check.jpg)" : "📄 Drag & drop or click to upload (mock)"; });
+        dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("drag"); });
+        dz.addEventListener("dragleave", () => dz.classList.remove("drag"));
+        dz.addEventListener("drop", (e) => { e.preventDefault(); dz.classList.add("drag"); dz.textContent = "✓ Image attached (mock-check.jpg)"; });
+      });
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const amount = parseFloat(document.getElementById("dep-amount").value);
+        if (!amount || amount <= 0) { toast("Enter a valid check amount.", "error"); return; }
+        const accountId = document.getElementById("dep-acct").value;
+        stage = "processing"; render();
+        try {
+          const result = await api.deposit({ accountId, amount });
+          stage = result.status === "flagged" ? "flagged" : "success";
+        } catch (err) {
+          stage = "form"; apiErrorToast(err);
+        }
+        render();
+      });
+    }
+  }
+  renderChat();
+})();
+</script>
+</body>
+</html>

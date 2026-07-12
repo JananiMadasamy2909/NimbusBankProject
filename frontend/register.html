@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Create Account — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<a href="#register-form" class="skip-link">Skip to form</a>
+<div id="toast-region" aria-live="polite" role="status"></div>
+<div id="modal-root"></div>
+<div class="auth-shell">
+  <div class="auth-card" style="max-width:480px" data-testid="register-card">
+    <div class="brand"><div class="brand-mark">N</div><div class="brand-name">Nimbus Bank</div></div>
+    <p style="color:var(--text-dim);font-size:13.5px;margin-top:-10px;margin-bottom:20px">Create your sandbox account</p>
+    <form id="register-form" novalidate>
+      <div class="form-grid-2">
+        <div class="field" id="rf-fullname"><label for="reg-fullname">Full name</label><input type="text" id="reg-fullname" data-testid="reg-fullname"><div class="error-text">Full name is required.</div></div>
+        <div class="field" id="rf-dob"><label for="reg-dob">Date of birth</label><input type="date" id="reg-dob" data-testid="reg-dob"><div class="error-text">You must be 18 or older.</div></div>
+      </div>
+      <div class="field" id="rf-email"><label for="reg-email">Email address</label><input type="email" id="reg-email" data-testid="reg-email"><div class="error-text">Enter a valid email address.</div></div>
+      <div class="field" id="rf-phone"><label for="reg-phone">Phone number</label><input type="tel" id="reg-phone" data-testid="reg-phone" placeholder="416-555-0100"><div class="error-text">Enter a valid phone number.</div></div>
+      <div class="field" id="rf-username"><label for="reg-username">Username</label><input type="text" id="reg-username" data-testid="reg-username"><div class="error-text">Username must be at least 4 characters.</div></div>
+      <div class="field" id="rf-password">
+        <label for="reg-password">Password</label>
+        <input type="password" id="reg-password" data-testid="reg-password">
+        <div class="password-strength"><div class="password-strength-fill" id="pw-strength-fill"></div></div>
+        <div class="hint" id="pw-strength-label">Use 8+ characters with a number and symbol.</div>
+        <div class="error-text">Password does not meet requirements.</div>
+      </div>
+      <div class="field" id="rf-confirm"><label for="reg-confirm">Confirm password</label><input type="password" id="reg-confirm" data-testid="reg-confirm"><div class="error-text">Passwords do not match.</div></div>
+      <div class="field" id="rf-tos"><label class="checkbox-row"><input type="checkbox" id="reg-tos" data-testid="reg-tos"> I agree to the sandbox Terms of Service</label><div class="error-text">You must accept the Terms of Service.</div></div>
+      <button type="submit" class="btn btn-primary btn-block btn-lg" data-testid="register-submit">Create account</button>
+    </form>
+    <p style="text-align:center;font-size:13.5px;margin-top:18px;color:var(--text-dim)">Already have an account? <a href="login.html" data-testid="go-login">Sign in</a></p>
+  </div>
+</div>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  await redirectIfAuthed();
+
+  function toggleFieldError(sel, isInvalid) { const el = document.querySelector(sel); if (el) el.classList.toggle("invalid", isInvalid); }
+
+  document.getElementById("reg-password").addEventListener("input", () => {
+    const val = document.getElementById("reg-password").value;
+    let score = 0; if (val.length >= 8) score++; if (/[0-9]/.test(val)) score++; if (/[^A-Za-z0-9]/.test(val)) score++; if (/[A-Z]/.test(val) && /[a-z]/.test(val)) score++;
+    const fill = document.getElementById("pw-strength-fill"); const label = document.getElementById("pw-strength-label");
+    fill.style.width = (score / 4 * 100) + "%";
+    const colors = ["var(--danger)", "var(--danger)", "var(--warning)", "var(--success)", "var(--success)"];
+    fill.style.background = colors[score];
+    const labels = ["Very weak", "Weak", "Fair", "Strong", "Very strong"];
+    label.textContent = val ? "Strength: " + labels[score] : "Use 8+ characters with a number and symbol.";
+  });
+
+  document.getElementById("register-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const vals = {
+      fullname: document.getElementById("reg-fullname").value.trim(),
+      dob: document.getElementById("reg-dob").value,
+      email: document.getElementById("reg-email").value.trim(),
+      phone: document.getElementById("reg-phone").value.trim(),
+      username: document.getElementById("reg-username").value.trim(),
+      password: document.getElementById("reg-password").value,
+      confirm: document.getElementById("reg-confirm").value,
+      tos: document.getElementById("reg-tos").checked
+    };
+    const age = vals.dob ? (new Date().getFullYear() - new Date(vals.dob).getFullYear()) : 0;
+    toggleFieldError("#rf-fullname", vals.fullname.length < 2);
+    toggleFieldError("#rf-dob", !vals.dob || age < 18);
+    toggleFieldError("#rf-email", !/^\S+@\S+\.\S+$/.test(vals.email));
+    toggleFieldError("#rf-phone", vals.phone.replace(/\D/g, "").length < 10);
+    toggleFieldError("#rf-username", vals.username.length < 4);
+    toggleFieldError("#rf-password", vals.password.length < 8);
+    toggleFieldError("#rf-confirm", vals.confirm !== vals.password || !vals.password);
+    toggleFieldError("#rf-tos", !vals.tos);
+    if (document.querySelectorAll(".field.invalid").length > 0) { toast("Please fix the highlighted fields.", "error"); return; }
+
+    const btn = e.target.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = "Creating account…";
+    try {
+      await api.register(vals);
+      toast("Account created! You can now sign in.", "success");
+      setTimeout(() => window.location.href = "login.html", 700);
+    } catch (err) {
+      toast(err.message, "error");
+    } finally {
+      btn.disabled = false; btn.textContent = "Create account";
+    }
+  });
+})();
+</script>
+</body>
+</html>

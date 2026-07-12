@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loan Application — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  const ctx = await initAuthedPage("loan", "Loan Application");
+  if (!ctx) return;
+
+  document.getElementById("view-root").innerHTML = `
+  <div class="grid grid-2" style="align-items:start">
+    <div class="card">
+      <form id="loan-form">
+        <div class="field"><label for="loan-type">Loan type</label>
+          <select id="loan-type" data-testid="loan-type"><option value="personal">Personal loan</option><option value="auto">Auto loan</option><option value="mortgage">Mortgage</option></select>
+        </div>
+        <div class="field"><label for="loan-amount">Loan amount</label>
+          <input type="number" id="loan-amount" min="1000" max="500000" step="500" value="15000" data-testid="loan-amount">
+          <div class="range-row" style="margin-top:8px"><input type="range" id="loan-slider" min="1000" max="500000" step="500" value="15000" data-testid="loan-slider"></div>
+        </div>
+        <div class="field"><label>Loan term</label>
+          <div class="radio-cards">${[12, 36, 60, 84].map(m => `<label class="radio-card ${m === 36 ? 'selected' : ''}" data-term="${m}"><input type="radio" name="term" value="${m}" ${m === 36 ? 'checked' : ''}> ${m} months</label>`).join("")}</div>
+        </div>
+        <div class="field"><label for="loan-income">Annual income</label><input type="number" id="loan-income" min="0" step="1000" value="65000" data-testid="loan-income"></div>
+        <div class="field"><label for="loan-employment">Employment status</label>
+          <select id="loan-employment" data-testid="loan-employment"><option>Full-time</option><option>Part-time</option><option>Self-employed</option><option>Unemployed</option></select>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block btn-lg" data-testid="loan-submit">Submit application</button>
+      </form>
+    </div>
+    <div class="card">
+      <h3 class="card-title">Estimated payment</h3>
+      <div style="text-align:center;padding:14px 0">
+        <div style="font-family:var(--font-display);font-size:34px;font-weight:700" id="loan-monthly" data-testid="loan-monthly-payment">$0/mo</div>
+        <div class="hint">Estimate at 7.5% APR — not a final offer</div>
+      </div>
+      <div class="kv-row"><span>Principal</span><span id="loan-summary-amount">$15,000</span></div>
+      <div class="kv-row"><span>Term</span><span id="loan-summary-term">36 months</span></div>
+      <div class="kv-row"><span>Est. total interest</span><span id="loan-summary-interest">$0</span></div>
+      <div id="loan-result" style="margin-top:16px"></div>
+    </div>
+  </div>`;
+
+  function calc() {
+    const amt = parseFloat(document.getElementById("loan-amount").value) || 0;
+    const term = parseInt([...document.querySelectorAll('input[name=term]')].find(r => r.checked)?.value) || 36;
+    const rate = 0.075 / 12;
+    const payment = amt > 0 ? (amt * rate) / (1 - Math.pow(1 + rate, -term)) : 0;
+    const totalInterest = (payment * term) - amt;
+    document.getElementById("loan-monthly").textContent = "$" + payment.toFixed(2) + "/mo";
+    document.getElementById("loan-summary-amount").textContent = fmt(amt);
+    document.getElementById("loan-summary-term").textContent = term + " months";
+    document.getElementById("loan-summary-interest").textContent = fmt(totalInterest > 0 ? totalInterest : 0);
+  }
+  const amtInput = document.getElementById("loan-amount"), slider = document.getElementById("loan-slider");
+  amtInput.addEventListener("input", () => { slider.value = amtInput.value; calc(); });
+  slider.addEventListener("input", () => { amtInput.value = slider.value; calc(); });
+  document.querySelectorAll('input[name=term]').forEach(r => r.addEventListener("change", () => {
+    document.querySelectorAll('.radio-card').forEach(c => c.classList.toggle('selected', c.querySelector('input[name=term]')?.checked));
+    calc();
+  }));
+  document.getElementById("loan-income").addEventListener("input", calc);
+  calc();
+  document.getElementById("loan-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const type = document.getElementById("loan-type").value;
+    const amount = parseFloat(document.getElementById("loan-amount").value);
+    const term = parseInt([...document.querySelectorAll('input[name=term]')].find(r => r.checked)?.value);
+    const income = parseFloat(document.getElementById("loan-income").value);
+    const employment = document.getElementById("loan-employment").value;
+    const btn = e.target.querySelector('[type=submit]');
+    btn.disabled = true; btn.textContent = "Submitting…";
+    try {
+      const { loan } = await api.applyLoan({ type, amount, term, income, employment });
+      const cls = loan.status === "Denied" ? "badge-danger" : loan.status === "Pending" ? "badge-warning" : "badge-success";
+      const msg = loan.status === "Denied" ? "Denied — insufficient income to support this loan." : loan.status === "Pending" ? "Pending manual underwriting review." : "Pre-approved! A loan officer will follow up to finalize terms.";
+      document.getElementById("loan-result").innerHTML = `<div class="badge ${cls}" data-testid="loan-result" style="width:100%;padding:12px;text-align:center;font-size:13px">${msg}</div>`;
+      toast("Loan application submitted.", "success");
+    } catch (err) {
+      apiErrorToast(err);
+    } finally {
+      btn.disabled = false; btn.textContent = "Submit application";
+    }
+  });
+  renderChat();
+})();
+</script>
+</body>
+</html>

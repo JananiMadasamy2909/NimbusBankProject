@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Verify Your Identity — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<a href="#otp-row" class="skip-link">Skip to verification code</a>
+<div id="toast-region" aria-live="polite" role="status"></div>
+<div class="auth-shell">
+  <div class="auth-card" data-testid="otp-card">
+    <div class="brand"><div class="brand-mark">N</div><div class="brand-name">Nimbus Bank</div></div>
+    <h2 style="font-family:var(--font-display);font-size:19px;margin:4px 0 6px">Two-factor verification</h2>
+    <p style="color:var(--text-dim);font-size:13.5px;margin-bottom:6px">We emailed a 6-digit code to <strong id="otp-email-target" data-testid="otp-email-target"></strong>.</p>
+
+    <div class="mock-inbox" data-testid="mock-inbox" aria-label="Simulated inbox preview for testing">
+      <div class="mi-head"><span>From: alerts@nimbusbank-sandbox.test</span><span id="otp-sent-time"></span></div>
+      <div class="mi-subject">Your Nimbus Bank verification code</div>
+      <div>Use this code to finish signing in. It expires in 10 minutes.</div>
+      <div class="mi-code" data-testid="otp-email-code" id="otp-email-code">------</div>
+      <div class="hint">This inbox preview calls the same server-side <code>GET /api/otp/peek</code> endpoint your Playwright tests can call — no real mail server required.</div>
+    </div>
+
+    <div class="otp-row" id="otp-row" data-testid="otp-row"></div>
+    <div class="error-text" id="otp-error" style="display:none;color:var(--danger);margin-top:10px" data-testid="otp-error">Please enter all 6 digits.</div>
+    <div class="error-text" id="otp-mismatch" style="display:none;color:var(--danger);margin-top:6px" data-testid="otp-mismatch">That code doesn't match. Check the inbox preview above and try again.</div>
+    <button class="btn btn-primary btn-block btn-lg" id="otp-verify" style="margin-top:20px" data-testid="otp-verify">Verify</button>
+    <div style="text-align:center;margin-top:16px;font-size:13px;color:var(--text-dim)">
+      Didn't get a code? <button class="btn-link" id="otp-resend" data-testid="otp-resend">Resend (<span id="otp-timer">30</span>s)</button>
+    </div>
+    <a class="btn-link" href="login.html" style="margin-top:14px;display:block" data-testid="otp-back">← Back to sign in</a>
+  </div>
+</div>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  const otpToken = sessionStorage.getItem("nimbus_pending_otp_token");
+  if (!otpToken) { window.location.href = "login.html"; return; }
+  document.getElementById("otp-email-target").textContent = sessionStorage.getItem("nimbus_pending_otp_email") || "your email";
+
+  const otpRow = document.getElementById("otp-row");
+  otpRow.innerHTML = [0, 1, 2, 3, 4, 5].map(i => `<input class="otp-box" maxlength="1" inputmode="numeric" pattern="[0-9]*" data-testid="otp-digit-${i}" aria-label="OTP digit ${i + 1}">`).join("");
+
+  async function paintCode() {
+    try {
+      const { code } = await api.otpPeek(otpToken);
+      document.getElementById("otp-email-code").textContent = code;
+      document.getElementById("otp-sent-time").textContent = "Sent " + new Date().toLocaleTimeString();
+    } catch (err) {
+      document.getElementById("otp-email-code").textContent = "EXPIRED";
+      toast(err.message, "error");
+    }
+  }
+  await paintCode();
+
+  const boxes = Array.from(document.querySelectorAll(".otp-box"));
+  boxes.forEach((box, i) => {
+    box.addEventListener("input", (e) => { e.target.value = e.target.value.replace(/[^0-9]/g, ""); if (e.target.value && boxes[i + 1]) boxes[i + 1].focus(); });
+    box.addEventListener("keydown", (e) => { if (e.key === "Backspace" && !e.target.value && boxes[i - 1]) boxes[i - 1].focus(); });
+  });
+
+  document.getElementById("otp-verify").addEventListener("click", async () => {
+    const code = boxes.map(b => b.value).join("");
+    document.getElementById("otp-error").style.display = "none";
+    document.getElementById("otp-mismatch").style.display = "none";
+    if (code.length !== 6) { document.getElementById("otp-error").style.display = "block"; toast("Enter all 6 digits.", "error"); return; }
+    const btn = document.getElementById("otp-verify");
+    btn.disabled = true; btn.textContent = "Verifying…";
+    try {
+      const result = await api.otpVerify(otpToken, code);
+      setToken(result.token);
+      sessionStorage.removeItem("nimbus_pending_otp_token");
+      sessionStorage.removeItem("nimbus_pending_otp_email");
+      toast(`Welcome back, ${result.user.name.split(" ")[0]}!`, "success");
+      window.location.href = "dashboard.html";
+    } catch (err) {
+      btn.disabled = false; btn.textContent = "Verify";
+      document.getElementById("otp-mismatch").style.display = "block";
+      toast(err.message, "error");
+    }
+  });
+
+  let seconds = 30;
+  const timerEl = document.getElementById("otp-timer");
+  const resendBtn = document.getElementById("otp-resend");
+  resendBtn.disabled = true;
+  const interval = setInterval(() => {
+    seconds--; if (timerEl) timerEl.textContent = seconds;
+    if (seconds <= 0) { clearInterval(interval); resendBtn.disabled = false; resendBtn.textContent = "Resend code"; }
+  }, 1000);
+  resendBtn.addEventListener("click", async () => {
+    if (resendBtn.disabled) return;
+    try { await api.otpResend(otpToken); await paintCode(); toast("A new code has been emailed to you.", "info"); }
+    catch (err) { toast(err.message, "error"); }
+  });
+})();
+</script>
+</body>
+</html>

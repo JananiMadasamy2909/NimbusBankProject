@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transaction History — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  const ctx = await initAuthedPage("transactions", "Transaction History");
+  if (!ctx) return;
+
+  let accounts = [];
+  try { accounts = (await api.accounts()).accounts; } catch (err) { apiErrorToast(err, "Could not load accounts."); }
+
+  let filters = { accountType: "all", accountId: "all", category: "all", from: "", to: "", q: "", min: "", max: "" };
+  let sort = "date", dir = "desc", page = 1;
+  const perPage = 8;
+  let allCategories = new Set();
+
+  await render();
+
+  function accountsOfType() { return filters.accountType === "all" ? accounts : accounts.filter(a => a.type === filters.accountType); }
+  function sortHeader(col, label) {
+    const active = sort === col;
+    const arrow = active ? (dir === "asc" ? "▲" : "▼") : "";
+    return `<th data-sort-col="${col}" data-testid="sort-${col}" aria-sort="${active ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}">${label}<span class="arrow">${arrow}</span></th>`;
+  }
+
+  async function render() {
+    const root = document.getElementById("view-root");
+    root.innerHTML = `<div class="skeleton" style="height:300px;border-radius:16px"></div>`;
+
+    let result;
+    try {
+      result = await api.transactions({ ...filters, sort, dir, page, perPage });
+    } catch (err) {
+      apiErrorToast(err, "Could not load transactions.");
+      result = { transactions: [], total: 0, totalPages: 1 };
+    }
+    result.transactions.forEach(t => allCategories.add(t.category));
+    const categories = [...allCategories].sort();
+    const accountTypes = [...new Set(accounts.map(a => a.type))];
+
+    root.innerHTML = `
+    <div class="card">
+      <div class="table-toolbar">
+        <div class="filter-row">
+          <input type="search" id="txn-search" placeholder="Search description…" value="${escapeHtml(filters.q)}" data-testid="txn-search">
+          <select id="txn-type-filter" data-testid="txn-filter-account-type">
+            <option value="all">All account types</option>
+            ${accountTypes.map(t => `<option value="${t}" ${filters.accountType === t ? 'selected' : ''} style="text-transform:capitalize">${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join("")}
+          </select>
+          <select id="txn-account-filter" data-testid="txn-filter-account">
+            <option value="all">All accounts</option>
+            ${accountsOfType().map(a => `<option value="${a.id}" ${filters.accountId === a.id ? 'selected' : ''}>${a.name}</option>`).join("")}
+          </select>
+          <select id="txn-cat-filter" data-testid="txn-filter-category">
+            <option value="all">All categories</option>
+            ${categories.map(c => `<option value="${c}" ${filters.category === c ? 'selected' : ''}>${c}</option>`).join("")}
+          </select>
+          <input type="date" id="txn-from" data-testid="txn-filter-from" value="${filters.from}" aria-label="From date">
+          <input type="date" id="txn-to" data-testid="txn-filter-to" value="${filters.to}" aria-label="To date">
+          <input type="number" id="txn-min" placeholder="Min $" data-testid="txn-filter-min" value="${filters.min}" style="width:90px">
+          <input type="number" id="txn-max" placeholder="Max $" data-testid="txn-filter-max" value="${filters.max}" style="width:90px">
+          <button class="btn btn-sm btn-ghost" id="txn-clear-filters" data-testid="txn-clear-filters">Clear filters</button>
+        </div>
+        <button class="btn btn-sm btn-ghost" id="txn-export" data-testid="txn-export">⬇ Export CSV</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        ${accountTypes.map(t => `<span class="badge ${filters.accountType === t ? 'badge-info' : 'badge-neutral'}" data-quick-type="${t}" data-testid="quick-filter-${t}" style="cursor:pointer;text-transform:capitalize">${t}</span>`).join("")}
+        <span class="badge ${filters.category === 'e-Transfer' ? 'badge-info' : 'badge-neutral'}" data-quick-cat="e-Transfer" data-testid="quick-filter-etransfer" style="cursor:pointer">e-Transfer</span>
+      </div>
+      ${result.transactions.length === 0 ? `
+        <div class="empty-state" data-testid="txn-empty-state">
+          <div class="ic">🔍</div><p>No transactions match your filters.</p>
+          <button class="btn btn-sm btn-ghost" id="txn-clear-filters-2" data-testid="txn-clear-filters-2">Clear filters</button>
+        </div>` : `
+      <div class="table-wrap">
+        <table data-testid="transactions-table">
+          <thead><tr>${sortHeader("date", "Date")}${sortHeader("description", "Description")}${sortHeader("category", "Category")}${sortHeader("account", "Account")}${sortHeader("amount", "Amount")}${sortHeader("status", "Status")}</tr></thead>
+          <tbody>${result.transactions.map(t => {
+            const acct = accounts.find(a => a.id === t.account);
+            return `<tr data-testid="txn-row-${t.id}">
+              <td>${fmtDate(t.date)}</td><td>${escapeHtml(t.description)}</td>
+              <td><span class="badge ${t.category === 'e-Transfer' ? 'badge-info' : (t.category || '').startsWith('Investment') || t.category === 'Dividend' ? 'badge-invest' : 'badge-neutral'}">${escapeHtml(t.category)}</span></td>
+              <td class="hint" style="text-transform:capitalize">${acct ? acct.type + ' •' + acct.number : '—'}</td>
+              <td class="${t.amount < 0 ? 'amt-neg' : 'amt-pos'}">${fmt(t.amount)}</td>
+              <td><span class="badge ${t.status === 'Posted' ? 'badge-success' : 'badge-warning'}">${t.status}</span></td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table>
+      </div>
+      <div class="pagination" data-testid="txn-pagination">
+        <span>Page ${result.page} of ${result.totalPages} (${result.total} results)</span>
+        <button ${result.page === 1 ? 'disabled' : ''} id="txn-prev" data-testid="txn-prev-page">‹</button>
+        <button ${result.page === result.totalPages ? 'disabled' : ''} id="txn-next" data-testid="txn-next-page">›</button>
+      </div>`}
+    </div>`;
+    bind();
+  }
+
+  function bind() {
+    const q = document.getElementById("txn-search"); if (q) q.addEventListener("input", () => { filters.q = q.value; page = 1; render(); });
+    const typeF = document.getElementById("txn-type-filter"); if (typeF) typeF.addEventListener("change", () => { filters.accountType = typeF.value; filters.accountId = "all"; page = 1; render(); });
+    const acc = document.getElementById("txn-account-filter"); if (acc) acc.addEventListener("change", () => { filters.accountId = acc.value; page = 1; render(); });
+    const cat = document.getElementById("txn-cat-filter"); if (cat) cat.addEventListener("change", () => { filters.category = cat.value; page = 1; render(); });
+    const from = document.getElementById("txn-from"); if (from) from.addEventListener("change", () => { filters.from = from.value; page = 1; render(); });
+    const to = document.getElementById("txn-to"); if (to) to.addEventListener("change", () => { filters.to = to.value; page = 1; render(); });
+    const min = document.getElementById("txn-min"); if (min) min.addEventListener("input", () => { filters.min = min.value; page = 1; render(); });
+    const max = document.getElementById("txn-max"); if (max) max.addEventListener("input", () => { filters.max = max.value; page = 1; render(); });
+    ["txn-clear-filters", "txn-clear-filters-2"].forEach(id => { const b = document.getElementById(id); if (b) b.addEventListener("click", () => { filters = { accountType: "all", accountId: "all", category: "all", from: "", to: "", q: "", min: "", max: "" }; page = 1; render(); }); });
+    document.querySelectorAll("[data-sort-col]").forEach(th => th.addEventListener("click", () => {
+      const col = th.dataset.sortCol;
+      if (sort === col) dir = dir === "asc" ? "desc" : "asc"; else { sort = col; dir = "asc"; }
+      render();
+    }));
+    document.querySelectorAll("[data-quick-type]").forEach(el => el.addEventListener("click", () => { filters.accountType = filters.accountType === el.dataset.quickType ? "all" : el.dataset.quickType; filters.accountId = "all"; page = 1; render(); }));
+    document.querySelectorAll("[data-quick-cat]").forEach(el => el.addEventListener("click", () => { filters.category = filters.category === el.dataset.quickCat ? "all" : el.dataset.quickCat; page = 1; render(); }));
+    const prev = document.getElementById("txn-prev"); if (prev) prev.addEventListener("click", () => { page--; render(); });
+    const next = document.getElementById("txn-next"); if (next) next.addEventListener("click", () => { page++; render(); });
+    const exp = document.getElementById("txn-export"); if (exp) exp.addEventListener("click", () => toast("CSV export started (mock download).", "info"));
+  }
+  renderChat();
+})();
+</script>
+</body>
+</html>

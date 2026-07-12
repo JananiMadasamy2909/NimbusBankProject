@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  const ctx = await initAuthedPage("dashboard", "Dashboard");
+  if (!ctx) return;
+
+  const root = document.getElementById("view-root");
+  root.innerHTML = `<div class="skeleton" style="height:120px;border-radius:16px"></div>`;
+
+  let accounts = [], transactions = [];
+  try {
+    accounts = (await api.accounts()).accounts;
+    transactions = (await api.transactions({ perPage: 5, sort: "date", dir: "desc" })).transactions;
+  } catch (err) { apiErrorToast(err, "Could not load dashboard data."); }
+
+  root.innerHTML = `
+  <div class="grid grid-4" style="margin-bottom:22px">
+    ${accounts.map(a => `
+      <a class="acct-card ${a.type}" href="${a.type === 'investment' ? 'investments.html' : 'accounts.html'}" data-testid="acct-card-${a.id}">
+        <div class="type">${a.type}</div>
+        <div class="bal">${fmt(a.balance)}</div>
+        <div class="num">${a.name} •••• ${a.number}</div>
+      </a>`).join("")}
+  </div>
+  <div class="grid grid-2" style="align-items:start">
+    <div class="card">
+      <h3 class="card-title">Quick actions</h3>
+      <div style="display:flex;flex-wrap:wrap;gap:10px">
+        <a class="btn btn-primary" href="transfer.html" data-testid="qa-transfer">⇄ Transfer / e-Transfer</a>
+        <a class="btn btn-ghost" href="billpay.html" data-testid="qa-billpay">⎘ Pay a bill</a>
+        <a class="btn btn-ghost" href="deposit.html" data-testid="qa-deposit">⇓ Deposit check</a>
+        <a class="btn btn-ghost" href="open-account.html" data-testid="qa-open">+ Open account</a>
+      </div>
+      <hr class="divider">
+      <h3 class="card-title">Spending by category (last 60 days)</h3>
+      <canvas id="spend-chart" height="180" data-testid="spend-chart"></canvas>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <h3 class="card-title" style="margin:0">Recent transactions</h3>
+        <a class="btn-link" href="transactions.html" data-testid="view-all-txns">View all</a>
+      </div>
+      <div class="table-wrap">
+        <table data-testid="recent-txn-table">
+          <thead><tr><th>Date</th><th>Description</th><th>Amount</th></tr></thead>
+          <tbody>${transactions.map(t => `<tr><td>${fmtDate(t.date)}</td><td>${escapeHtml(t.description)}</td><td class="${t.amount < 0 ? 'amt-neg' : 'amt-pos'}">${fmt(t.amount)}</td></tr>`).join("") || `<tr><td colspan="3" class="hint">No transactions yet.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+
+  // spending chart needs the fuller set — fetch a larger page just for the chart
+  let allSpending = transactions;
+  try { allSpending = (await api.transactions({ perPage: 500 })).transactions; } catch (e) { /* fall back to the 5 we have */ }
+
+  const canvas = document.getElementById("spend-chart");
+  const w = canvas.clientWidth || 400; canvas.width = w; canvas.height = 180;
+  const wrap = canvas.getContext("2d");
+  const byCat = {};
+  allSpending.filter(t => t.amount < 0).forEach(t => { byCat[t.category] = (byCat[t.category] || 0) + Math.abs(t.amount); });
+  const entries = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const max = Math.max(...entries.map(e => e[1]), 1);
+  const colors = ["#e6a53c", "#9b6bff", "#5ec8d8", "#4fbe8d", "#e5566b", "#7c6f8f"];
+  const barW = (w - 20) / Math.max(entries.length, 1);
+  const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim();
+  entries.forEach(([cat, val], i) => {
+    const h = (val / max) * 120; const x = 10 + i * barW;
+    wrap.fillStyle = colors[i % colors.length]; wrap.fillRect(x + 8, 140 - h, barW - 16, h);
+    wrap.fillStyle = textColor || "#999"; wrap.font = "10px sans-serif"; wrap.textAlign = "center";
+    wrap.fillText(cat.slice(0, 8), x + barW / 2, 156);
+    wrap.fillText("$" + val.toFixed(0), x + barW / 2, 130 - h < 10 ? 12 : 130 - h);
+  });
+
+  renderChat();
+})();
+</script>
+</body>
+</html>

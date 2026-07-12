@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Open a New Account — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  const ctx = await initAuthedPage("open-account", "Open a New Account");
+  if (!ctx) return;
+  let step = 1;
+  let data = { type: "chequing" };
+  render();
+
+  function render() {
+    let inner;
+    if (step === 4) {
+      inner = `<div style="text-align:center;padding:20px 8px">
+        <div style="width:56px;height:56px;border-radius:50%;background:var(--success-soft);color:var(--success);display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 16px">✓</div>
+        <h2 style="font-family:var(--font-display)">Account opened</h2>
+        <p style="color:var(--text-dim)">Your new ${data.type} account is ready.</p>
+        <a class="btn btn-primary" href="accounts.html" data-testid="open-acct-done" style="margin-top:14px">Go to accounts</a></div>`;
+    } else {
+      inner = `<div class="steps">
+        <div class="step ${step > 1 ? 'done' : step === 1 ? 'active' : ''}" data-n="1">Type</div>
+        <div class="step ${step > 2 ? 'done' : step === 2 ? 'active' : ''}" data-n="2">Details</div>
+        <div class="step ${step > 3 ? 'done' : step === 3 ? 'active' : ''}" data-n="3">Review</div>
+      </div>${step === 1 ? step1() : step === 2 ? step2() : step3()}`;
+    }
+    document.getElementById("view-root").innerHTML = `<div class="card" style="max-width:560px">${inner}</div>`;
+    bind();
+  }
+  function step1() {
+    return `<div class="radio-cards" id="acct-type-cards">
+      ${[["chequing", "Chequing", "Everyday spending, no minimum balance"], ["savings", "Savings", "Earn 4.2% APY on your balance"], ["investment", "Investment", "Self-directed trading, no annual fee"], ["credit", "Credit card", "0% intro APR for 12 months"]].map(([v, t, d]) => `
+        <label class="radio-card ${data.type === v ? 'selected' : ''}" data-type="${v}" data-testid="acct-type-${v}">
+          <input type="radio" name="acct-type" value="${v}" ${data.type === v ? 'checked' : ''}><strong>${t}</strong><div class="hint">${d}</div>
+        </label>`).join("")}
+      </div>
+      <button class="btn btn-primary btn-block btn-lg" style="margin-top:20px" id="open-step1-next" data-testid="open-step1-next">Continue</button>`;
+  }
+  function step2() {
+    return `<form id="open-step2-form">
+      <div class="field"><label for="oa-nickname">Account nickname</label><input type="text" id="oa-nickname" data-testid="oa-nickname" placeholder="e.g. Vacation fund" required></div>
+      <div class="field"><label for="oa-initial">Initial deposit</label><input type="number" id="oa-initial" min="0" step="0.01" data-testid="oa-initial" placeholder="0.00" required></div>
+      <div class="field"><label class="checkbox-row"><input type="checkbox" id="oa-estatements" checked data-testid="oa-estatements"> Enroll in paperless e-statements</label></div>
+      <div class="modal-footer" style="justify-content:space-between">
+        <button type="button" class="btn btn-ghost" id="open-step2-back" data-testid="open-step2-back">← Back</button>
+        <button type="submit" class="btn btn-primary" data-testid="open-step2-next">Continue</button>
+      </div></form>`;
+  }
+  function step3() {
+    return `<div class="kv-row"><span>Account type</span><span style="text-transform:capitalize">${data.type}</span></div>
+      <div class="kv-row"><span>Nickname</span><span>${escapeHtml(data.nickname || '')}</span></div>
+      <div class="kv-row"><span>Initial deposit</span><span>${fmt(parseFloat(data.initial || 0))}</span></div>
+      <div class="field" style="margin-top:16px"><label class="checkbox-row"><input type="checkbox" id="oa-terms" data-testid="oa-terms"> I agree to the account terms and disclosures</label></div>
+      <div class="modal-footer" style="justify-content:space-between">
+        <button class="btn btn-ghost" id="open-step3-back" data-testid="open-step3-back">← Back</button>
+        <button class="btn btn-primary" id="open-step3-submit" data-testid="open-step3-submit">Open account</button>
+      </div>`;
+  }
+  function bind() {
+    document.querySelectorAll("[data-type]").forEach(c => c.addEventListener("click", () => { data.type = c.dataset.type; render(); }));
+    const n1 = document.getElementById("open-step1-next"); if (n1) n1.addEventListener("click", () => { step = 2; render(); });
+    const f2 = document.getElementById("open-step2-form");
+    if (f2) f2.addEventListener("submit", (e) => {
+      e.preventDefault();
+      data.nickname = document.getElementById("oa-nickname").value.trim();
+      data.initial = document.getElementById("oa-initial").value;
+      if (!data.nickname) { toast("Please enter a nickname.", "error"); return; }
+      step = 3; render();
+    });
+    const b2 = document.getElementById("open-step2-back"); if (b2) b2.addEventListener("click", () => { step = 1; render(); });
+    const b3 = document.getElementById("open-step3-back"); if (b3) b3.addEventListener("click", () => { step = 2; render(); });
+    const s3 = document.getElementById("open-step3-submit");
+    if (s3) s3.addEventListener("click", async () => {
+      if (!document.getElementById("oa-terms").checked) { toast("You must agree to the terms to continue.", "error"); return; }
+      s3.disabled = true; s3.textContent = "Opening account…";
+      try {
+        await api.openAccount({ type: data.type, nickname: data.nickname, initialDeposit: data.initial });
+        step = 4; toast("New account opened!", "success"); render();
+      } catch (err) {
+        apiErrorToast(err); s3.disabled = false; s3.textContent = "Open account";
+      }
+    });
+  }
+  renderChat();
+})();
+</script>
+</body>
+</html>

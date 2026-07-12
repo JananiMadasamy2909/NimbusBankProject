@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profile & Settings — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  const ctx = await initAuthedPage("profile", "Profile & Settings");
+  if (!ctx) return;
+  let user = ctx.user;
+  let tab = "personal";
+  await render();
+
+  async function render() {
+    const tabs = [["personal", "Personal info"], ["security", "Security"], ["notifications", "Notifications"], ["danger", "Danger zone"]];
+    let body;
+    if (tab === "personal") body = `
+      <form id="personal-form">
+        <div class="form-grid-2">
+          <div class="field"><label for="p-name">Full name</label><input type="text" id="p-name" value="${escapeHtml(user.name)}" data-testid="profile-name"></div>
+          <div class="field"><label for="p-email">Email</label><input type="email" id="p-email" value="${escapeHtml(user.email)}" data-testid="profile-email"></div>
+        </div>
+        <div class="form-grid-2">
+          <div class="field"><label for="p-phone">Phone</label><input type="tel" id="p-phone" value="${escapeHtml(user.phone)}" data-testid="profile-phone"></div>
+          <div class="field"><label for="p-address">Mailing address</label><input type="text" id="p-address" placeholder="123 Main St, Toronto, ON" data-testid="profile-address"></div>
+        </div>
+        <button type="submit" class="btn btn-primary" data-testid="profile-save">Save changes</button>
+      </form>`;
+    else if (tab === "security") {
+      let activity = [];
+      try { activity = (await api.loginActivity()).activity; } catch (e) { /* non-fatal */ }
+      body = `
+      <h3 class="card-title">Change password</h3>
+      <form id="pw-change-form">
+        <div class="field"><label for="cur-pw">Current password</label><input type="password" id="cur-pw" data-testid="current-password"></div>
+        <div class="field"><label for="new-pw">New password</label><input type="password" id="new-pw" data-testid="new-password"></div>
+        <div class="field"><label for="confirm-pw">Confirm new password</label><input type="password" id="confirm-pw" data-testid="confirm-new-password"></div>
+        <button type="submit" class="btn btn-primary" data-testid="change-password-submit">Update password</button>
+      </form>
+      <hr class="divider">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div><strong style="font-size:14px">Two-factor authentication (email)</strong><div class="hint">Require a one-time emailed code at sign-in</div></div>
+        <label class="switch"><input type="checkbox" id="toggle-2fa" ${user.requires2fa ? 'checked' : ''} data-testid="toggle-2fa"><span class="slider-toggle"></span></label>
+      </div>
+      <hr class="divider">
+      <h3 class="card-title">Recent login activity</h3>
+      <div class="table-wrap"><table data-testid="login-activity-table">
+        <thead><tr><th>Device</th><th>Location</th><th>Time</th><th>Status</th></tr></thead>
+        <tbody>${activity.map(l => `<tr><td>${l.device}</td><td>${l.location}</td><td>${l.time}</td><td><span class="badge ${l.status === 'Success' ? 'badge-success' : 'badge-danger'}">${l.status}</span></td></tr>`).join("") || `<tr><td colspan="4" class="hint">No activity recorded.</td></tr>`}</tbody>
+      </table></div>`;
+    }
+    else if (tab === "notifications") body = `
+      <h3 class="card-title">Notification preferences</h3>
+      ${[["email", "Email notifications"], ["sms", "SMS alerts"], ["push", "Push notifications"], ["marketing", "Product updates & offers"]].map(([id, label]) => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-top:1px solid var(--border-soft)">
+          <span style="font-size:14px">${label}</span>
+          <label class="switch"><input type="checkbox" ${id !== 'marketing' ? 'checked' : ''} data-testid="notif-pref-${id}"><span class="slider-toggle"></span></label>
+        </div>`).join("")}
+      <p class="hint" style="margin-top:14px">These preferences are UI-only in this build (not yet persisted server-side) — a good gap to file as its own defect if you're tracking known issues.</p>`;
+    else body = `
+      <h3 class="card-title" style="color:var(--danger)">Danger zone</h3>
+      <p class="hint">Deleting your account removes it from the server's data file. It does not affect other users.</p>
+      <button class="btn btn-danger" id="delete-account-btn" data-testid="delete-account-btn">Delete my account</button>
+      <hr class="divider">
+      <h3 class="card-title">Reset sandbox data</h3>
+      <p class="hint">Restores all accounts, transactions, and payees on the server to their original demo state, for every user.</p>
+      <button class="btn btn-ghost" id="reset-data-btn" data-testid="reset-data-btn">Reset all sandbox data</button>`;
+
+    document.getElementById("view-root").innerHTML = `
+      <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap" role="tablist">
+        ${tabs.map(([id, label]) => `<button class="btn ${tab === id ? 'btn-primary' : 'btn-ghost'} btn-sm" data-tab="${id}" role="tab" aria-selected="${tab === id}" data-testid="tab-${id}">${label}</button>`).join("")}
+      </div>
+      <div class="card" style="max-width:640px">${body}</div>`;
+    bind();
+  }
+
+  function bind() {
+    document.querySelectorAll("[data-tab]").forEach(b => b.addEventListener("click", async () => { tab = b.dataset.tab; await render(); }));
+    const pf = document.getElementById("personal-form");
+    if (pf) pf.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      try {
+        const result = await api.updateMe({ name: document.getElementById("p-name").value.trim(), email: document.getElementById("p-email").value.trim(), phone: document.getElementById("p-phone").value.trim() });
+        user = result.user;
+        toast("Profile updated.", "success");
+      } catch (err) { apiErrorToast(err); }
+    });
+    const pwf = document.getElementById("pw-change-form");
+    if (pwf) pwf.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const cur = document.getElementById("cur-pw").value, np = document.getElementById("new-pw").value, cp = document.getElementById("confirm-pw").value;
+      if (np !== cp) { toast("New passwords do not match.", "error"); return; }
+      try { await api.changePassword(cur, np); toast("Password updated successfully.", "success"); pwf.reset(); }
+      catch (err) { apiErrorToast(err); }
+    });
+    const t2fa = document.getElementById("toggle-2fa");
+    if (t2fa) t2fa.addEventListener("change", async () => {
+      try { const result = await api.set2fa(t2fa.checked); user.requires2fa = result.requires2fa; toast(result.requires2fa ? "Email two-factor authentication enabled." : "Two-factor authentication disabled.", "info"); }
+      catch (err) { apiErrorToast(err); t2fa.checked = !t2fa.checked; }
+    });
+    const del = document.getElementById("delete-account-btn");
+    if (del) del.addEventListener("click", () => {
+      openModal(`
+        <div class="modal-header"><h2 style="color:var(--danger)">Delete account</h2><button class="modal-close" aria-label="Close">✕</button></div>
+        <p style="font-size:14px;color:var(--text-dim)">Type <strong>DELETE</strong> to confirm.</p>
+        <div class="field"><input type="text" id="delete-confirm-input" data-testid="delete-confirm-input" placeholder="Type DELETE"></div>
+        <div class="modal-footer"><button class="btn btn-ghost" data-testid="delete-cancel">Cancel</button><button class="btn btn-danger" id="delete-confirm-btn" data-testid="delete-confirm-btn" disabled>Delete account</button></div>`,
+        (root) => {
+          root.querySelector(".modal-close").onclick = closeModal;
+          root.querySelector('[data-testid="delete-cancel"]').onclick = closeModal;
+          const input = document.getElementById("delete-confirm-input"), btn = document.getElementById("delete-confirm-btn");
+          input.addEventListener("input", () => btn.disabled = input.value !== "DELETE");
+          btn.addEventListener("click", async () => {
+            try { await api.deleteMe(); closeModal(); toast("Account deleted.", "info"); clearToken(); setTimeout(() => window.location.href = "login.html", 500); }
+            catch (err) { apiErrorToast(err); }
+          });
+        });
+    });
+    const resetBtn = document.getElementById("reset-data-btn");
+    if (resetBtn) resetBtn.addEventListener("click", () => {
+      openModal(`
+        <div class="modal-header"><h2>Reset sandbox data</h2><button class="modal-close" aria-label="Close">✕</button></div>
+        <p style="font-size:14px;color:var(--text-dim)">This restores all server data to the original demo state for every user, then logs you out.</p>
+        <div class="modal-footer"><button class="btn btn-ghost" data-testid="reset-cancel">Cancel</button><button class="btn btn-danger" data-testid="reset-confirm">Reset data</button></div>`,
+        (root) => {
+          root.querySelector(".modal-close").onclick = closeModal;
+          root.querySelector('[data-testid="reset-cancel"]').onclick = closeModal;
+          root.querySelector('[data-testid="reset-confirm"]').onclick = async () => {
+            try { await api.resetSandbox(); clearToken(); sessionStorage.removeItem("nimbus_chat_v1"); closeModal(); window.location.href = "login.html"; }
+            catch (err) { apiErrorToast(err); }
+          };
+        });
+    });
+  }
+  renderChat();
+})();
+</script>
+</body>
+</html>

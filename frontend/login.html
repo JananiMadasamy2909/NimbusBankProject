@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign In — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<a href="#login-form" class="skip-link">Skip to sign-in form</a>
+<div id="toast-region" aria-live="polite" role="status"></div>
+<div id="modal-root"></div>
+<div class="auth-shell">
+  <div class="auth-card" data-testid="login-card">
+    <div class="brand"><div class="brand-mark">N</div><div class="brand-name">Nimbus Bank</div></div>
+    <p style="color:var(--text-dim);font-size:13.5px;margin-top:-10px;margin-bottom:20px">Sign in to your sandbox account</p>
+    <div id="server-warning" class="banner banner-error hidden" data-testid="server-warning">Can't reach the Nimbus Bank server. Make sure it's running (<code>node server.js</code> in the <code>server/</code> folder).</div>
+    <form id="login-form" novalidate>
+      <div class="field" id="field-username">
+        <label for="login-username">Username</label>
+        <input type="text" id="login-username" name="username" data-testid="login-username" autocomplete="username" placeholder="e.g. demo_user">
+        <div class="error-text" data-testid="login-username-error">Username is required.</div>
+      </div>
+      <div class="field" id="field-password">
+        <label for="login-password">Password</label>
+        <div class="input-group">
+          <input type="password" id="login-password" name="password" data-testid="login-password" autocomplete="current-password" placeholder="Enter password">
+          <button type="button" class="input-suffix-btn" id="toggle-login-pw" aria-label="Show password" data-testid="toggle-password">👁</button>
+        </div>
+        <div class="error-text" data-testid="login-password-error">Password is required.</div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">
+        <label class="checkbox-row"><input type="checkbox" id="remember-me" data-testid="remember-me"> Remember me</label>
+        <button type="button" class="btn-link" id="forgot-link" data-testid="forgot-password-link">Forgot password?</button>
+      </div>
+      <div class="error-text" id="login-error" style="display:none;background:var(--danger-soft);color:var(--danger);padding:10px 12px;border-radius:8px;margin-bottom:14px" data-testid="login-error-banner"></div>
+      <button type="submit" class="btn btn-primary btn-block btn-lg" id="login-submit" data-testid="login-submit"><span id="login-submit-label">Sign In</span></button>
+    </form>
+    <p style="text-align:center;font-size:13.5px;margin-top:18px;color:var(--text-dim)">New here? <a href="register.html" data-testid="go-register">Create an account</a></p>
+    <div class="divider"></div>
+    <div style="font-size:12px;color:var(--text-faint);background:var(--surface-2);padding:12px;border-radius:8px" data-testid="demo-credentials">
+      <strong>QA test credentials</strong><br>
+      Standard: <code>demo_user</code> / <code>Demo@1234</code><br>
+      Email 2FA flow: <code>otp_user</code> / <code>Otp@1234</code><br>
+      Locked account: <code>locked_user</code> / <code>Locked@1234</code><br>
+      <button class="btn-link" id="reset-data-link" data-testid="reset-data-link" style="margin-top:8px;font-size:11.5px">Reset all sandbox data (server-side)</button>
+    </div>
+  </div>
+</div>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  api.health().catch(() => document.getElementById("server-warning").classList.remove("hidden"));
+  await redirectIfAuthed();
+
+  document.getElementById("toggle-login-pw").addEventListener("click", () => {
+    const pw = document.getElementById("login-password"); const btn = document.getElementById("toggle-login-pw");
+    const show = pw.type === "password"; pw.type = show ? "text" : "password"; btn.textContent = show ? "🙈" : "👁";
+    btn.setAttribute("aria-label", show ? "Hide password" : "Show password");
+  });
+
+  document.getElementById("forgot-link").addEventListener("click", () => {
+    openModal(`
+      <div class="modal-header"><h2>Reset your password</h2><button class="modal-close" data-testid="modal-close" aria-label="Close">✕</button></div>
+      <p style="color:var(--text-dim);font-size:13.5px">Enter the email associated with your account and we'll send a reset link (simulated in this sandbox).</p>
+      <form id="forgot-form">
+        <div class="field"><label for="forgot-email">Email address</label><input type="email" id="forgot-email" data-testid="forgot-email" required></div>
+        <div class="modal-footer"><button type="button" class="btn btn-ghost" data-testid="forgot-cancel">Cancel</button><button type="submit" class="btn btn-primary" data-testid="forgot-submit">Send reset link</button></div>
+      </form>`, (root) => {
+      root.querySelector(".modal-close").onclick = closeModal;
+      root.querySelector('[data-testid="forgot-cancel"]').onclick = closeModal;
+      root.querySelector("#forgot-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const email = document.getElementById("forgot-email").value.trim();
+        if (!/^\S+@\S+\.\S+$/.test(email)) { toast("Enter a valid email address.", "error"); return; }
+        closeModal(); toast("If that email exists, a reset link has been sent.", "success");
+      });
+    });
+  });
+
+  document.getElementById("reset-data-link").addEventListener("click", async () => {
+    try { await api.resetSandbox(); clearToken(); sessionStorage.removeItem("nimbus_chat_v1"); toast("All sandbox data has been reset on the server.", "success"); }
+    catch (err) { apiErrorToast(err, "Could not reach the server to reset data."); }
+  });
+
+  function toggleFieldError(sel, isInvalid) { const el = document.querySelector(sel); if (el) el.classList.toggle("invalid", isInvalid); }
+
+  document.getElementById("login-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const username = document.getElementById("login-username").value.trim();
+    const password = document.getElementById("login-password").value;
+    toggleFieldError("#field-username", username.length === 0);
+    toggleFieldError("#field-password", password.length === 0);
+    if (username.length === 0 || password.length === 0) return;
+
+    const btn = document.getElementById("login-submit"); const label = document.getElementById("login-submit-label");
+    btn.disabled = true; label.innerHTML = `<span class="skeleton" style="display:inline-block;width:60px;height:14px"></span>`;
+    document.getElementById("login-error").style.display = "none";
+
+    try {
+      const result = await api.login(username, password);
+      btn.disabled = false; label.textContent = "Sign In";
+      if (result.otpRequired) {
+        sessionStorage.setItem("nimbus_pending_otp_token", result.otpToken);
+        sessionStorage.setItem("nimbus_pending_otp_email", result.maskedEmail);
+        window.location.href = "otp.html";
+        return;
+      }
+      setToken(result.token);
+      toast(`Welcome back, ${result.user.name.split(" ")[0]}!`, "success");
+      window.location.href = "dashboard.html";
+    } catch (err) {
+      btn.disabled = false; label.textContent = "Sign In";
+      document.getElementById("login-error").style.display = "block";
+      document.getElementById("login-error").textContent = err.message;
+      toast(err.status === 429 ? "Too many attempts — temporarily locked." : "Login failed.", "error");
+    }
+  });
+})();
+</script>
+</body>
+</html>

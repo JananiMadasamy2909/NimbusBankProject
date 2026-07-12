@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bill Pay — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  const ctx = await initAuthedPage("billpay", "Bill Pay");
+  if (!ctx) return;
+
+  async function render() {
+    const root = document.getElementById("view-root");
+    root.innerHTML = `<div class="skeleton" style="height:200px;border-radius:16px"></div>`;
+    let payees = [], payments = [];
+    try { payees = (await api.payees()).payees; payments = (await api.billHistory()).payments; }
+    catch (err) { apiErrorToast(err, "Could not load bill pay data."); }
+
+    root.innerHTML = `
+    <div class="grid grid-2" style="align-items:start">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <h3 class="card-title" style="margin:0">Payees</h3>
+          <button class="btn btn-sm btn-primary" id="add-payee-btn" data-testid="add-payee">+ Add payee</button>
+        </div>
+        <div class="table-wrap">
+          <table data-testid="payees-table">
+            <thead><tr><th>Payee</th><th>Category</th><th>Account</th><th></th></tr></thead>
+            <tbody>${payees.map(p => `<tr data-testid="payee-row-${p.id}">
+              <td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.category)}</td><td class="hint">${p.account}</td>
+              <td><button class="btn btn-sm btn-ghost" data-pay-payee="${p.id}" data-testid="pay-now-${p.id}">Pay</button>
+                  <button class="btn btn-sm btn-ghost" data-del-payee="${p.id}" data-testid="delete-payee-${p.id}" aria-label="Delete payee">🗑</button></td>
+            </tr>`).join("") || `<tr><td colspan="4" class="hint">No payees yet.</td></tr>`}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h3 class="card-title">Payment history</h3>
+        <div class="table-wrap">
+          <table data-testid="bill-history-table">
+            <thead><tr><th>Payee</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead>
+            <tbody>${payments.map(b => `<tr>
+              <td>${escapeHtml(b.payee)}</td><td>${fmt(-b.amount)}</td><td>${fmtDate(b.date)}</td>
+              <td><span class="badge ${b.status === 'Completed' ? 'badge-success' : b.status === 'Pending' ? 'badge-warning' : 'badge-danger'}" data-testid="bill-status-${b.id}">${b.status}</span></td>
+            </tr>`).join("") || `<tr><td colspan="4" class="hint">No payments yet.</td></tr>`}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+    bind(payees);
+  }
+
+  function bind(payees) {
+    document.getElementById("add-payee-btn").addEventListener("click", () => {
+      openModal(`
+        <div class="modal-header"><h2>Add payee</h2><button class="modal-close" aria-label="Close">✕</button></div>
+        <form id="add-payee-form">
+          <div class="field"><label for="payee-name">Payee name</label><input type="text" id="payee-name" data-testid="payee-name" required></div>
+          <div class="field"><label for="payee-cat">Category</label>
+            <select id="payee-cat" data-testid="payee-category"><option>Utilities</option><option>Rent</option><option>Internet & Phone</option><option>Credit Card</option><option>Insurance</option><option>Other</option></select>
+          </div>
+          <div class="field"><label for="payee-acct">Account number</label><input type="text" id="payee-acct" data-testid="payee-account" required></div>
+          <div class="modal-footer"><button type="button" class="btn btn-ghost" data-testid="add-payee-cancel">Cancel</button><button type="submit" class="btn btn-primary" data-testid="add-payee-save">Save payee</button></div>
+        </form>`, (root) => {
+        root.querySelector(".modal-close").onclick = closeModal;
+        root.querySelector('[data-testid="add-payee-cancel"]').onclick = closeModal;
+        root.querySelector("#add-payee-form").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const name = document.getElementById("payee-name").value.trim(), account = document.getElementById("payee-acct").value.trim();
+          if (!name || !account) { toast("All fields are required.", "error"); return; }
+          try { await api.addPayee({ name, category: document.getElementById("payee-cat").value, account }); closeModal(); toast("Payee added.", "success"); await render(); }
+          catch (err) { apiErrorToast(err); }
+        });
+      });
+    });
+    document.querySelectorAll("[data-del-payee]").forEach(b => b.addEventListener("click", async () => {
+      try { await api.deletePayee(b.dataset.delPayee); toast("Payee removed.", "info"); await render(); }
+      catch (err) { apiErrorToast(err); }
+    }));
+    document.querySelectorAll("[data-pay-payee]").forEach(b => b.addEventListener("click", () => {
+      const p = payees.find(x => x.id == b.dataset.payPayee);
+      openModal(`
+        <div class="modal-header"><h2>Pay ${escapeHtml(p.name)}</h2><button class="modal-close" aria-label="Close">✕</button></div>
+        <form id="pay-form">
+          <div class="field"><label for="pay-amount">Amount</label><input type="number" id="pay-amount" min="0.01" step="0.01" data-testid="pay-amount" required></div>
+          <div class="field"><label for="pay-date">Payment date</label><input type="date" id="pay-date" data-testid="pay-date" required></div>
+          <div class="modal-footer"><button type="button" class="btn btn-ghost" data-testid="pay-cancel">Cancel</button><button type="submit" class="btn btn-primary" data-testid="pay-submit">Schedule payment</button></div>
+        </form>`, (root) => {
+        root.querySelector(".modal-close").onclick = closeModal;
+        root.querySelector('[data-testid="pay-cancel"]').onclick = closeModal;
+        root.querySelector("#pay-form").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const amount = parseFloat(document.getElementById("pay-amount").value);
+          if (!amount || amount <= 0) { toast("Enter a valid amount.", "error"); return; }
+          try { await api.payBill({ payeeId: p.id, amount, date: document.getElementById("pay-date").value }); closeModal(); toast("Payment scheduled.", "success"); await render(); }
+          catch (err) { apiErrorToast(err); }
+        });
+      });
+    }));
+  }
+
+  await render();
+  renderChat();
+})();
+</script>
+</body>
+</html>

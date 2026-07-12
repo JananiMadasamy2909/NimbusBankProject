@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transfer Money — Nimbus Bank</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script>
+(async function () {
+  const ctx = await initAuthedPage("transfer", "Transfer Money");
+  if (!ctx) return;
+
+  let mode = "internal", step = 1, data = {};
+  let accounts = [], recipients = [];
+  try { accounts = (await api.accounts()).accounts; } catch (err) { apiErrorToast(err, "Could not load accounts."); }
+  try { recipients = (await api.eTransferRecipients()).recipients; } catch (err) { /* non-fatal */ }
+
+  render();
+
+  function render() {
+    document.getElementById("view-root").innerHTML = `
+    <div style="display:flex;gap:8px;margin-bottom:20px">
+      <button class="btn ${mode === 'internal' ? 'btn-primary' : 'btn-ghost'} btn-sm" data-mode="internal" data-testid="tab-internal-transfer">Internal / External Transfer</button>
+      <button class="btn ${mode === 'etransfer' ? 'btn-primary' : 'btn-ghost'} btn-sm" data-mode="etransfer" data-testid="tab-etransfer">e-Transfer</button>
+    </div>
+    <div class="card" style="max-width:560px">${mode === "internal" ? renderInternal() : renderEtransfer()}</div>`;
+    document.querySelectorAll("[data-mode]").forEach(b => b.addEventListener("click", () => { mode = b.dataset.mode; step = 1; data = {}; render(); }));
+    bind();
+  }
+
+  function renderInternal() {
+    if (step === 3) return successBlock(data.amount);
+    return `<div class="steps">
+      <div class="step ${step > 1 ? 'done' : step === 1 ? 'active' : ''}" data-n="1">Details</div>
+      <div class="step ${step > 2 ? 'done' : step === 2 ? 'active' : ''}" data-n="2">Review</div>
+      <div class="step ${step === 3 ? 'active' : ''}" data-n="3">Done</div>
+    </div>${step === 1 ? internalStep1() : internalStep2()}`;
+  }
+  function internalStep1() {
+    return `<form id="transfer-form">
+      <div class="field"><label for="from-acct">From account</label>
+        <select id="from-acct" data-testid="from-account">${accounts.map(a => `<option value="${a.id}">${a.name} — ${fmt(a.balance)}</option>`).join("")}</select>
+      </div>
+      <div class="field"><label for="to-acct">To account</label>
+        <select id="to-acct" data-testid="to-account">${accounts.map(a => `<option value="${a.id}">${a.name} — ${fmt(a.balance)}</option>`).join("")}<option value="external">External account (routing + account #)</option></select>
+      </div>
+      <div class="field hidden" id="external-fields">
+        <label for="routing-num">Routing number</label><input type="text" id="routing-num" data-testid="routing-number" placeholder="000000000">
+        <label for="ext-account" style="margin-top:10px">External account number</label><input type="text" id="ext-account" data-testid="ext-account-number" placeholder="0000000000">
+      </div>
+      <div class="field" id="field-amount">
+        <label for="transfer-amount">Amount</label>
+        <input type="number" id="transfer-amount" data-testid="transfer-amount" min="0.01" step="0.01" placeholder="0.00">
+        <div class="range-row" style="margin-top:8px"><input type="range" id="amount-slider" min="0" max="2000" step="10" value="0" data-testid="amount-slider"><span id="slider-val" class="hint" style="min-width:70px">$0</span></div>
+        <div class="error-text" data-testid="amount-error" id="amount-error-text">Enter an amount greater than $0 and within your balance.</div>
+      </div>
+      <div class="field"><label for="transfer-memo">Memo (optional)</label><input type="text" id="transfer-memo" data-testid="transfer-memo" placeholder="What's this for?"></div>
+      <button type="submit" class="btn btn-primary btn-block btn-lg" data-testid="transfer-continue">Continue to review</button>
+    </form>`;
+  }
+  function internalStep2() {
+    const from = accounts.find(a => a.id === data.from);
+    const toExternal = data.to === "external";
+    const toLabel = toExternal ? `External account •••• ${(data.extAccount || '').slice(-4)}` : accounts.find(a => a.id === data.to)?.name;
+    return `<div class="kv-row"><span>From</span><span>${escapeHtml(from.name)}</span></div>
+    <div class="kv-row"><span>To</span><span>${escapeHtml(toLabel || '')}</span></div>
+    <div class="kv-row"><span>Amount</span><span style="font-weight:700">${fmt(data.amount)}</span></div>
+    ${data.memo ? `<div class="kv-row"><span>Memo</span><span>${escapeHtml(data.memo)}</span></div>` : ""}
+    <div class="modal-footer" style="justify-content:space-between;margin-top:22px">
+      <button class="btn btn-ghost" id="transfer-back" data-testid="transfer-back">← Back</button>
+      <button class="btn btn-primary" id="transfer-confirm" data-testid="transfer-confirm">Confirm transfer</button>
+    </div>`;
+  }
+  function successBlock(amount) {
+    return `<div style="text-align:center;padding:20px 8px">
+      <div style="width:56px;height:56px;border-radius:50%;background:var(--success-soft);color:var(--success);display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 16px">✓</div>
+      <h2 style="font-family:var(--font-display)">${data.title || "Transfer complete"}</h2>
+      <p style="color:var(--text-dim);font-size:14px">Confirmation #<span data-testid="confirmation-number">${data.confirmation || ''}</span></p>
+      <p style="font-size:22px;font-weight:700;margin:14px 0">${fmt(amount)}</p>
+      <a class="btn btn-primary" href="dashboard.html" data-testid="transfer-done">Back to dashboard</a>
+    </div>`;
+  }
+
+  function renderEtransfer() {
+    if (step === 3) return successBlock(data.amount);
+    return step === 1 ? etransferStep1() : etransferStep2();
+  }
+  function etransferStep1() {
+    return `<form id="etransfer-form">
+      <div class="field"><label for="et-from">From account</label>
+        <select id="et-from" data-testid="et-from-account">${accounts.filter(a => a.type !== 'credit' && a.type !== 'investment').map(a => `<option value="${a.id}">${a.name} — ${fmt(a.balance)}</option>`).join("")}</select>
+      </div>
+      <div class="field"><label for="et-recipient">Recipient</label>
+        <select id="et-recipient" data-testid="et-recipient">
+          ${recipients.map(r => `<option value="${r.id}">${r.name} (${r.contact})</option>`).join("")}
+          <option value="new">+ Add a new recipient</option>
+        </select>
+      </div>
+      <div class="field hidden" id="et-new-fields">
+        <label for="et-new-name">Recipient name</label><input type="text" id="et-new-name" data-testid="et-new-name">
+        <label for="et-new-contact" style="margin-top:10px">Email or mobile number</label><input type="text" id="et-new-contact" data-testid="et-new-contact">
+      </div>
+      <div class="field"><label for="et-amount">Amount</label><input type="number" id="et-amount" min="0.01" step="0.01" data-testid="et-amount" placeholder="0.00"><div class="error-text" id="et-amount-error-text" data-testid="et-amount-error">Enter an amount greater than $0 and within your balance ($3,000 e-Transfer limit).</div></div>
+      <div class="field"><label class="checkbox-row"><input type="checkbox" id="et-autodeposit" checked data-testid="et-autodeposit"> Recipient has Autodeposit enabled</label></div>
+      <div class="field hidden" id="et-security-fields">
+        <label for="et-question">Security question</label><input type="text" id="et-question" value="What city were we married in?" data-testid="et-question">
+        <label for="et-answer" style="margin-top:10px">Answer</label><input type="text" id="et-answer" data-testid="et-answer">
+      </div>
+      <div class="field"><label for="et-memo">Message (optional)</label><input type="text" id="et-memo" data-testid="et-memo"></div>
+      <button type="submit" class="btn btn-primary btn-block btn-lg" data-testid="et-continue">Continue to review</button>
+    </form>`;
+  }
+  function etransferStep2() {
+    return `<div class="kv-row"><span>From</span><span>${escapeHtml(accounts.find(a => a.id === data.from).name)}</span></div>
+    <div class="kv-row"><span>To</span><span>${escapeHtml(data.recipientName)} (${escapeHtml(data.recipientContact)})</span></div>
+    <div class="kv-row"><span>Amount</span><span style="font-weight:700">${fmt(data.amount)}</span></div>
+    <div class="kv-row"><span>Autodeposit</span><span>${data.autodeposit ? 'Yes' : 'No — security question required'}</span></div>
+    <div class="modal-footer" style="justify-content:space-between;margin-top:22px">
+      <button class="btn btn-ghost" id="et-back" data-testid="et-back">← Back</button>
+      <button class="btn btn-primary" id="et-confirm" data-testid="et-confirm">Send e-Transfer</button>
+    </div>`;
+  }
+
+  function bind() {
+    if (mode === "internal" && step === 1) {
+      const toSel = document.getElementById("to-acct");
+      toSel.addEventListener("change", () => document.getElementById("external-fields").classList.toggle("hidden", toSel.value !== "external"));
+      const amtInput = document.getElementById("transfer-amount"), slider = document.getElementById("amount-slider");
+      slider.addEventListener("input", () => { amtInput.value = slider.value; document.getElementById("slider-val").textContent = "$" + slider.value; });
+      amtInput.addEventListener("input", () => { document.getElementById("slider-val").textContent = "$" + (amtInput.value || 0); if (amtInput.value <= 2000) slider.value = amtInput.value || 0; });
+      document.getElementById("transfer-form").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const from = document.getElementById("from-acct").value, to = document.getElementById("to-acct").value, amount = parseFloat(amtInput.value);
+        data = { from, to, amount, extAccount: document.getElementById("ext-account") ? document.getElementById("ext-account").value : "", memo: document.getElementById("transfer-memo").value.trim() };
+        step = 2; render();
+      });
+    }
+    if (mode === "internal" && step === 2) {
+      document.getElementById("transfer-back").addEventListener("click", () => { step = 1; render(); });
+      document.getElementById("transfer-confirm").addEventListener("click", async (e) => {
+        const btn = e.target; btn.disabled = true; btn.textContent = "Processing…";
+        try {
+          const result = await api.transfer({ fromAccountId: data.from, toAccountId: data.to, externalAccount: data.extAccount, amount: data.amount, memo: data.memo });
+          data.confirmation = result.confirmation;
+          accounts = (await api.accounts()).accounts;
+          step = 3; toast("Transfer completed successfully.", "success"); render();
+        } catch (err) {
+          apiErrorToast(err); btn.disabled = false; btn.textContent = "Confirm transfer";
+        }
+      });
+    }
+    if (mode === "etransfer" && step === 1) {
+      const recSel = document.getElementById("et-recipient");
+      recSel.addEventListener("change", () => document.getElementById("et-new-fields").classList.toggle("hidden", recSel.value !== "new"));
+      const auto = document.getElementById("et-autodeposit");
+      auto.addEventListener("change", () => document.getElementById("et-security-fields").classList.toggle("hidden", auto.checked));
+      document.getElementById("et-security-fields").classList.toggle("hidden", auto.checked);
+      document.getElementById("etransfer-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const from = document.getElementById("et-from").value;
+        const amount = parseFloat(document.getElementById("et-amount").value);
+        let recipientId, recipientName, recipientContact;
+        if (recSel.value === "new") {
+          recipientName = document.getElementById("et-new-name").value.trim();
+          recipientContact = document.getElementById("et-new-contact").value.trim();
+          if (!recipientName || !recipientContact) { toast("Enter the new recipient's name and contact info.", "error"); return; }
+          try { const result = await api.addETransferRecipient(recipientName, recipientContact); recipientId = result.recipient.id; recipients.push(result.recipient); }
+          catch (err) { apiErrorToast(err); return; }
+        } else {
+          const r = recipients.find(x => x.id == recSel.value); recipientId = r.id; recipientName = r.name; recipientContact = r.contact;
+        }
+        data = { from, amount, recipientId, recipientName, recipientContact, autodeposit: auto.checked, securityAnswer: document.getElementById("et-answer").value.trim() };
+        step = 2; render();
+      });
+    }
+    if (mode === "etransfer" && step === 2) {
+      document.getElementById("et-back").addEventListener("click", () => { step = 1; render(); });
+      document.getElementById("et-confirm").addEventListener("click", async (e) => {
+        const btn = e.target; btn.disabled = true; btn.textContent = "Sending…";
+        try {
+          const result = await api.eTransfer({ fromAccountId: data.from, recipientId: data.recipientId, amount: data.amount, autodeposit: data.autodeposit, securityAnswer: data.securityAnswer });
+          data.confirmation = result.confirmation;
+          accounts = (await api.accounts()).accounts;
+          step = 3; toast("e-Transfer sent.", "success"); render();
+        } catch (err) {
+          apiErrorToast(err); btn.disabled = false; btn.textContent = "Send e-Transfer";
+        }
+      });
+    }
+  }
+  renderChat();
+})();
+</script>
+</body>
+</html>
