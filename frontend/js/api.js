@@ -44,6 +44,39 @@ async function apiFetch(path, { method = "GET", body, auth = true, query } = {})
   return data;
 }
 
+async function downloadAccountStatement(accountId) {
+  const token = getToken();
+  const headers = {};
+  if (token) headers["Authorization"] = "Bearer " + token;
+
+  let res;
+  try {
+    res = await fetch(`/api/accounts/${accountId}/statement`, { headers });
+  } catch (networkErr) {
+    const err = new Error("Could not reach the Nimbus Bank server. Is it running?");
+    err.status = 0;
+    throw err;
+  }
+  if (!res.ok) {
+    let data = null;
+    try { data = await res.json(); } catch (e) { /* body may not be JSON on an error path */ }
+    const err = new Error((data && data.error) || ("Request failed with status " + res.status));
+    err.status = res.status;
+    throw err;
+  }
+
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/);
+  const filename = match ? match[1] : "statement.pdf";
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
 const api = {
   // auth
   register: (payload) => apiFetch("/api/register", { method: "POST", body: payload, auth: false }),
@@ -104,5 +137,8 @@ const api = {
 
   // admin / testing utility
   resetSandbox: () => apiFetch("/api/admin/reset", { method: "POST", auth: false }),
-  health: () => apiFetch("/api/health", { auth: false })
+  health: () => apiFetch("/api/health", { auth: false }),
+
+  // statements (real PDF, downloaded as a file — not JSON, handled separately)
+  downloadStatement: (accountId) => downloadAccountStatement(accountId)
 };

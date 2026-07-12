@@ -8,6 +8,7 @@ const express = require("express");
 const cors = require("cors");
 const crypto = require("crypto");
 const path = require("path");
+const PDFDocument = require("pdfkit");
 const dbModule = require("./db");
 const chatbot = require("./chatbot");
 
@@ -119,8 +120,6 @@ app.post("/api/login", (req, res) => {
 });
 
 app.get("/api/otp/peek", (req, res) => {
-  // Test-only endpoint: stands in for "reading the verification email" so
-  // automated tests can retrieve the code the same way a human reads their inbox.
   const rec = otps.get(req.query.otpToken);
   if (!rec) return res.status(404).json({ error: "No pending OTP for that token." });
   if (rec.expires < Date.now()) return res.status(410).json({ error: "OTP expired." });
@@ -247,6 +246,96 @@ app.delete("/api/accounts/:id", requireAuth, ownsAccount, (req, res) => {
 app.get("/api/accounts/:id/transactions", requireAuth, ownsAccount, (req, res) => {
   const rows = db.transactions.filter(t => t.account === req.params.id && t.ownerUsername === req.username);
   res.json({ transactions: rows });
+});
+
+// ============================================================
+// Account statement (real generated PDF, not a mock)
+// GET /api/accounts/:id/statement?from=&to=   (defaults to the last 90 days)
+// ============================================================
+app.get("/api/accounts/:id/statement", requireAuth, ownsAccount, (req, res, next) => {
+  try {
+    const acct = req.account;
+    const today = new Date();
+    const defaultFrom = new Date(today); defaultFrom.setDate(defaultFrom.getDate() - 90);
+    const from = req.query.from || defaultFrom.toISOString().slice(0, 10);
+    const to = req.query.to || today.toISOString().slice(0, 10);
+
+    const txns = db.transactions
+      .filter(t => t.account === acct.id && t.ownerUsername === req.username && t.date >= from && t.date <= to)
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+    const money = (n) => (n < 0 ? "-$" : "$") + Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const prettyDate = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("en-CA", { year: "numeric", month: "short", day: "numeric" });
+    const totalCredits = txns.filter(t => t.amount > 0).reduce((s, t) => s + t.amount, 0);
+    const totalDebits = txns.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0);
+
+    const safeName = acct.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+    const filename = `nimbus-bank-${safeName}-statement-${to}.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+    const doc = new PDFDocument({ margin: 50, size: "LETTER" });
+    doc.pipe(res);
+
+    doc.fillColor("#241d2e").fontSize(20).font("Helvetica-Bold").text("Nimbus Bank");
+    doc.fillColor("#8b7f99").fontSize(9).font("Helvetica").text("QA sandbox — this statement is generated from mock data, not a real bank.");
+    doc.moveDown(1.2);
+
+    doc.fillColor("#241d2e").fontSize(14).font("Helvetica-Bold").text("Account Statement");
+    doc.moveDown(0.4);
+    doc.fontSize(10).font("Helvetica").fillColor("#333");
+    doc.text(`Account holder: ${req.user.name}`);
+    doc.text(`Account: ${acct.name}  (#${acct.full})`);
+    doc.text(`Statement period: ${prettyDate(from)} – ${prettyDate(to)}`);
+    doc.text(`Current balance: ${money(acct.balance)}`);
+    doc.moveDown(0.3);
+    doc.fontSize(9).fillColor("#666");
+    doc.text(`Total credits: ${money(totalCredits)}    Total debits: ${money(totalDebits)}    Transactions: ${txns.length}`);
+    doc.moveDown(1);
+
+    const colX = { date: 50, desc: 125, cat: 350, amt: 460 };
+    const colW = { date: 70, desc: 220, cat: 105, amt: 80 };
+    const pageBottom = 730;
+
+    function drawTableHeader(y) {
+      doc.font("Helvetica-Bold").fontSize(9).fillColor("#4b5563");
+      doc.text("Date", colX.date, y, { width: colW.date });
+      doc.text("Description", colX.desc, y, { width: colW.desc });
+      doc.text("Category", colX.cat, y, { width: colW.cat });
+      doc.text("Amount", colX.amt, y, { width: colW.amt, align: "right" });
+      doc.moveTo(50, y + 14).lineTo(540, y + 14).strokeColor("#d1d5db").lineWidth(0.5).stroke();
+      return y + 22;
+    }
+
+    let y = drawTableHeader(doc.y);
+    doc.font("Helvetica").fontSize(9);
+
+    if (txns.length === 0) {
+      doc.fillColor("#666").text("No transactions in this period.", colX.date, y);
+    }
+
+    txns.forEach((t) => {
+      if (y > pageBottom) {
+        doc.addPage();
+        y = drawTableHeader(50);
+        doc.font("Helvetica").fontSize(9);
+      }
+      doc.fillColor("#241d2e");
+      doc.text(prettyDate(t.date), colX.date, y, { width: colW.date });
+      doc.text(t.description, colX.desc, y, { width: colW.desc });
+      doc.text(t.category, colX.cat, y, { width: colW.cat });
+      doc.fillColor(t.amount < 0 ? "#c73b52" : "#2f8f66");
+      doc.text(money(t.amount), colX.amt, y, { width: colW.amt, align: "right" });
+      y += 16;
+    });
+
+    doc.fontSize(8).fillColor("#8b7f99");
+    doc.text(`Generated ${new Date().toLocaleString("en-CA")} — Nimbus Bank QA Sandbox`, 50, 760, { width: 490, align: "center" });
+
+    doc.end();
+  } catch (err) {
+    next(err);
+  }
 });
 
 // ============================================================
@@ -471,7 +560,6 @@ app.post("/api/chat", requireAuth, async (req, res) => {
       return res.json({ reply, source: "claude" });
     } catch (err) {
       console.error("Anthropic call failed, falling back to local FAQ:", err.message);
-      // fall through to the free path below rather than failing the request
     }
   }
 

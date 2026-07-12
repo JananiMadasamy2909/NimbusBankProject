@@ -87,7 +87,13 @@
           };
         });
     }));
-    document.querySelectorAll("[data-open-acct]").forEach(b => b.addEventListener("click", () => toast("Statement download started (mock PDF).", "info")));
+    document.querySelectorAll("[data-open-acct]").forEach(b => b.addEventListener("click", async () => {
+      const original = b.textContent;
+      b.disabled = true; b.textContent = "Preparing…";
+      try { await api.downloadStatement(b.dataset.openAcct); toast("Statement downloaded.", "success"); }
+      catch (err) { apiErrorToast(err, "Could not download statement."); }
+      finally { b.disabled = false; b.textContent = original; }
+    }));
   }
 
   renderChat();
