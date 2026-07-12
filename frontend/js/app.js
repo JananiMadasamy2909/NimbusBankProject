@@ -129,7 +129,7 @@ async function initAuthedPage(activeId, title) {
       <main class="view" id="main-content" role="main" tabindex="-1"><div class="view-inner" id="view-root"></div></main>
     </div>
   </div>
-  <button id="chat-fab" data-testid="chat-fab" aria-label="Open AI assistant">💬</button>
+  <button id="chat-fab" data-testid="chat-fab" aria-label="Open AI assistant">��</button>
   <div id="chat-panel-root"></div>
   `;
   document.body.appendChild(shell);
@@ -246,7 +246,7 @@ function renderChat() {
       <input type="text" id="chat-input" placeholder="Ask about your accounts…" data-testid="chat-input" autocomplete="off">
       <button type="submit" class="btn btn-primary btn-icon" data-testid="chat-send" aria-label="Send message">➤</button>
     </form>
-    <div class="chat-disclaimer">Nova can make mistakes. This is a sandbox assistant — no real account actions are taken.</div>
+    <div class="chat-disclaimer">Nova answers from a local FAQ (and a free web lookup for general questions) unless your server has an LLM key configured. No real account actions are taken.</div>
   </div>`;
   const body = $("#chat-body"); if (body) body.scrollTop = body.scrollHeight;
   $("#chat-form").addEventListener("submit", (e) => { e.preventDefault(); const input = $("#chat-input"); const text = input.value.trim(); if (!text) return; input.value = ""; sendChatMessage(text); });
@@ -258,19 +258,10 @@ async function sendChatMessage(text) {
   const body = $("#chat-body");
   if (body) { body.insertAdjacentHTML("beforeend", `<div class="msg typing" data-testid="chat-typing"><span></span><span></span><span></span></div>`); body.scrollTop = body.scrollHeight; }
 
-  let accountsSummary = "";
-  try { const { accounts } = await api.accounts(); accountsSummary = accounts.map(a => `${a.name} (${a.type}): ${fmt(a.balance)}`).join("; "); } catch (e) { /* fine without it */ }
-
-  const systemPrompt = `You are Nova, a friendly AI assistant embedded in "Nimbus Bank", a MOCK banking web app built purely for QA/software-testing practice (not a real bank). Answer general banking questions helpfully and briefly (2-4 sentences). You may reference this mock account data if relevant: ${accountsSummary}. Never claim to execute real transactions — this is a sandbox. Do not give real financial, legal, or investment advice; keep answers educational and generic. Keep responses concise and conversational.`;
-
-  fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 300, system: systemPrompt, messages: [{ role: "user", content: text }] })
-  }).then(r => r.json()).then(data => {
-    let reply = "Sorry, I couldn't process that right now.";
-    try { const blocks = (data.content || []).filter(b => b.type === "text").map(b => b.text); if (blocks.length) reply = blocks.join("\n"); } catch (err) { }
+  try {
+    const { reply } = await api.chat(text);
     msgs = getChatMessages(); msgs.push({ role: "bot", text: reply }); saveChatMessages(msgs); renderChat();
-  }).catch(() => {
-    msgs = getChatMessages(); msgs.push({ role: "bot", text: "I'm having trouble connecting right now. Please try again in a moment." }); saveChatMessages(msgs); renderChat();
-  });
+  } catch (err) {
+    msgs = getChatMessages(); msgs.push({ role: "bot", text: err.message || "I'm having trouble connecting right now. Please try again in a moment." }); saveChatMessages(msgs); renderChat();
+  }
 }

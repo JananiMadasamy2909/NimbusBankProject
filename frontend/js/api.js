@@ -99,6 +99,9 @@ const api = {
   markNotifRead: (id) => apiFetch(`/api/notifications/${id}/read`, { method: "POST" }),
   markAllNotifsRead: () => apiFetch("/api/notifications/read-all", { method: "POST" }),
 
+  // AI chat (proxied through the backend, which holds the real API key)
+  chat: (message) => apiFetch("/api/chat", { method: "POST", body: { message } }),
+
   // admin / testing utility
   resetSandbox: () => apiFetch("/api/admin/reset", { method: "POST", auth: false }),
   health: () => apiFetch("/api/health", { auth: false })
