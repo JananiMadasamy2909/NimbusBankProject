@@ -1,10 +1,10 @@
 /* ============================= TOKENS ============================= */
 :root{
   --bg:#15121b; --surface:#1f1a27; --surface-2:#2a2333; --surface-3:#342c3f;
-  --border:#3d3448; --border-soft:#2c2536; --text:#f3eef9; --text-dim:#b3a6c4; --text-faint:#7c6f8f;
+  --border:#3d3448; --border-soft:#2c2536; --text:#f3eef9; --text-dim:#b3a6c4; --text-faint:#a092af;
   --primary:#e6a53c; --primary-dark:#c4832a; --primary-soft:#3a2f22;
   --accent:#9b6bff; --accent-soft:#2a2140;
-  --success:#4fbe8d; --success-soft:#173328; --danger:#e5566b; --danger-soft:#3a1c22;
+  --success:#4fbe8d; --success-soft:#173328; --danger:#ea6a7e; --danger-soft:#3a1c22;
   --warning:#e6a53c; --warning-soft:#3a2f1c; --info:#5ec8d8; --info-soft:#1a3236;
   --invest:#5ec8d8; --invest-soft:#153338;
   --radius-sm:6px; --radius:10px; --radius-lg:16px;
@@ -15,11 +15,11 @@
 }
 html[data-theme="light"]{
   --bg:#f6f3ee; --surface:#ffffff; --surface-2:#f0ebe2; --surface-3:#e7dfd2;
-  --border:#ddd3c2; --border-soft:#e9e1d3; --text:#241d2e; --text-dim:#5b4f6b; --text-faint:#8b7f99;
+  --border:#ddd3c2; --border-soft:#e9e1d3; --text:#241d2e; --text-dim:#5b4f6b; --text-faint:#665a75;
   --primary:#c4832a; --primary-dark:#a66b1e; --primary-soft:#f6e6c9;
   --accent:#7b4fe0; --accent-soft:#ece3ff;
-  --success:#2f8f66; --success-soft:#dcf3e8; --danger:#c73b52; --danger-soft:#fbdfe3;
-  --warning:#c4832a; --warning-soft:#f6e6c9; --info:#2a8fa0; --info-soft:#daf1f4;
+  --success:#1f6e4d; --success-soft:#dcf3e8; --danger:#a02840; --danger-soft:#fbdfe3;
+  --warning:#7f5210; --warning-soft:#f6e6c9; --info:#146a78; --info-soft:#daf1f4;
   --invest:#2a8fa0; --invest-soft:#daf1f4;
   --shadow:0 8px 24px rgba(60,40,20,.12); --shadow-sm:0 2px 8px rgba(60,40,20,.08);
 }
